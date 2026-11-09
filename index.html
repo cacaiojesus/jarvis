@@ -130,14 +130,14 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v5</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v7</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v5';
+const VERSION = 'v7';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
-const CLOUD = !['127.0.0.1','localhost'].includes(location.hostname) || location.search.includes('cloud');
+const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
 const AUTH_KEY = 'jarvis_auth';
 const authGet = () => { try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch(e){ return null; } };
@@ -193,7 +193,7 @@ async function cloudApi(url, method, body){
       rest('GET','routines?select=*&active=eq.1&order=id'),
       rest('GET','routine_log?select=*&date=gte.'+sinceD),
       rest('GET','today_plan?select=*&date=in.('+today+',meta)'),
-      rest('GET','commands?select=*&status=eq.pending&order=id')]);
+      rest('GET','commands?select=*&status=in.(pending,working)&order=id')]);
     const plan = (plans.find(p=>p.date===today)||{}).items || [];
     const meta = (plans.find(p=>p.date==='meta')||{}).items || {};
     const logT = Object.fromEntries(logs.filter(l=>l.date===today).map(l=>[l.routine_id,l]));
@@ -207,17 +207,25 @@ async function cloudApi(url, method, body){
   }
   let r;
   if((r = m(/^\/api\/tasks\/(\d+)$/))){
-    const b = {...body, updated_by:'phone', updated_at: nowIso()};
+    const b = {...body, updated_by:'app', updated_at: nowIso()};
+    const EDIT = ['kind','area','title','client','with_whom','due','urgency','briefing','refs','links'];
+    const edited = Object.keys(body).filter(k => EDIT.includes(k));
+    if(edited.length){ const t = S.tasks.find(x => x.id === +r[1]) || {locked:[]}; b.locked = [...new Set([...(t.locked||[]), ...edited])]; }
     if(body.status) b.done_at = body.status==='done' ? new Date().toISOString().slice(0,16).replace('T',' ') : null;
     await rest('PATCH', 'tasks?id=eq.'+(+r[1]), b, 'return=minimal'); return {task:null};
   }
   if((r = m(/^\/api\/routines\/(\d+)\/log$/))){
     const {date, ...rest_} = body;
-    await rest('POST', 'routine_log', {routine_id:+r[1], date:date||today, ...rest_, updated_by:'phone', updated_at: nowIso()}, 'resolution=merge-duplicates,return=minimal'); return {ok:true};
+    await rest('POST', 'routine_log', {routine_id:+r[1], date:date||today, ...rest_, updated_by:'app', updated_at: nowIso()}, 'resolution=merge-duplicates,return=minimal'); return {ok:true};
   }
+  if(url==='/api/routines' && method==='POST'){
+    const row = {title:body.title||'Nova rotina', days:body.days||[0,1,2,3,4,5,6], time:body.time||'08:00', area:'pessoal', all_day:0, flex:0, duration:60, active:1, win_start:'06:00', win_end:'24:00'};
+    const res = await rest('POST','routines', row, 'return=representation'); return {id: res[0].id};
+  }
+  if((r = m(/^\/api\/routines\/(\d+)$/))){ await rest('PATCH','routines?id=eq.'+(+r[1]), body, 'return=minimal'); return {ok:true}; }
   if(url==='/api/tasks' && method==='POST'){ await rest('POST','commands',{text: body.text, source:'iphone'},'return=minimal'); return {warn:'Enviado ✓ o Jarvis organiza em até 1 min'}; }
   if(url==='/api/sync'){ await rest('POST','commands',{text:'/sync', source:'iphone'},'return=minimal'); return {ok:true}; }
-  throw new Error('No iPhone, rotinas se editam pelo Mac.');
+  throw new Error('Ação não reconhecida: '+url);
 }
 let PENDING = [];
 if (CLOUD && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch(e){} }
@@ -372,6 +380,8 @@ async function load(){
   if(CLOUD && !S.tasks.length) $('#foot').textContent = 'Carregando suas tarefas…';
   let j; try { j = await Promise.race([api('/api/tasks','GET'), new Promise((_,no)=>setTimeout(()=>no(new Error('a nuvem não respondeu em 20s')),20000))]); }
   catch(e){ if(CLOUD && e.auth) return showLogin(); $('#foot').textContent = 'Erro: '+(e.message||e)+' · '+VERSION; toast('Erro: '+(e.message||e), 9000); return; }
+  if(S._changed !== undefined && j.changed_at && j.changed_at !== S._changed) notifyNative();
+  S._changed = j.changed_at;
   Object.assign(S, j); syncing = j.syncing;
   $('#foot').textContent = (j.syncing ? j.sync_msg : 'Última leitura: ' + (j.last_sync ? fmtSent(j.last_sync) : 'nunca')) + (CLOUD ? ' · '+VERSION : '');
   syncButton(j);
@@ -379,7 +389,10 @@ async function load(){
   $('#foot').textContent += pend.length ? ` · ${pend.length} pedido(s) esperando o Mac` : '';
   render(); if(syncing) setTimeout(load, CLOUD ? 15000 : 2000);
 }
-const api = (url, method, body) => CLOUD ? cloudApi(url, method, body)
+// avisa o app nativo (widget) na hora em que algo muda
+function notifyNative(){ try { window.webkit.messageHandlers.jarvis.postMessage('changed'); } catch(e){} }
+const api = (url, method, body) => { const p = apiRaw(url, method, body); if(method && method!=='GET') p.then(notifyNative, ()=>{}); return p; };
+const apiRaw = (url, method, body) => CLOUD ? cloudApi(url, method, body)
   : fetch(url, method==='GET' ? {} : {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}).then(r=>r.json());
 
 $('#list').addEventListener('click', async e => {
@@ -485,7 +498,21 @@ function syncButton(j){
 $('#syncBtn').onclick = async () => { const b=$('#syncBtn'); b.classList.add('reading'); b.textContent='Lendo'; b.disabled=true; wasSyncing=true;
   await api('/api/sync','POST'); setTimeout(load, 600); };
 document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { view=b.dataset.v; openId=null; render(); });
-load(); setInterval(()=>{ if(!document.hidden && !syncing && openId===null) load(); }, 60000);
+load();
+let lastRev = null;
+async function watchRev(){
+  if(document.hidden || !CLOUD) return;
+  try {
+    const r = await rest('GET','rev?select=n&id=eq.1');
+    const n = r && r[0] ? r[0].n : null;
+    if(lastRev !== null && n !== lastRev){ notifyNative(); if(openId===null) load(); }
+    lastRev = n;
+  } catch(e){}
+}
+setInterval(watchRev, 2000);
+setInterval(()=>{ if(!document.hidden && openId===null) load(); }, 30000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) load(); });
+window.addEventListener('focus', ()=>load());
 </script>
 </body>
 </html>
