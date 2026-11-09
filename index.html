@@ -67,6 +67,14 @@ h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .check{transition:transform .12s;-webkit-tap-highlight-color:transparent}
 .check:active{transform:scale(.88)}
 .check.pop{animation:chkpop .32s cubic-bezier(.3,1.6,.5,1)}
+/* rotinas em quadradinhos */
+.rchips{display:flex;gap:8px;overflow-x:auto;padding:14px 2px 4px;scrollbar-width:none}
+.rchips::-webkit-scrollbar{display:none}
+.rchip{flex:0 0 auto;min-width:92px;max-width:140px;display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:12px;background:var(--rot);border:1px solid var(--rotline);cursor:pointer;-webkit-user-select:none;user-select:none}
+.rchip .check{width:20px;height:20px}
+.rchip .rt-t{font-weight:600;font-size:13.5px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rchip .rt-h{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rchip.done{opacity:.55}.rchip.done .rt-t{text-decoration:line-through}
 /* menu de toque longo */
 .task .row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .task.pressing{transform:scale(.98);transition:transform .15s}
@@ -147,12 +155,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v11</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v12</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v11';
+const VERSION = 'v12';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -311,14 +319,18 @@ function renderDelivered(){
 
 // ---------- HOJE > FAZER: rotinas + tarefas do dia, por horário e urgência ----------
 function renderToday(){
-  const items = [];
-  S.today.forEach(r => items.push({type:'r', r, done:r.done, key: r.all_day ? '00:00' : (r.time||'23:58'), u:0}));
-  S.tasks.filter(t=>t.due && dayDiff(t.due.slice(0,10))<=0 && (t.status==='open' || (t.status==='done' && (t.done_at||'').slice(0,10)===today())))
-    .forEach(t => items.push({type:'t', t, done:t.status==='done', key: dayDiff(t.due.slice(0,10))<0 ? '00:01' : (t.due.length>10 ? t.due.slice(11,16) : '23:59'), u:urg(t)}));
+  // rotinas: quadradinhos lado a lado no topo; tarefas do dia: lista abaixo
+  const rts = [...S.today].sort((a,b)=> (a.done-b.done) || (a.all_day?'00:00':(a.time||'23:58')).localeCompare(b.all_day?'00:00':(b.time||'23:58')));
+  const chips = rts.length ? `<div class="rchips">${rts.map(r => `
+    <label class="rchip ${r.done?'done':''}" data-rid="${r.routine_id}" data-date="${today()}">
+      <input type="checkbox" class="check" data-act="rdone" ${r.done?'checked':''}>
+      <span class="rt-t">${esc(r.title)}</span><span class="rt-h">${r.all_day?'dia todo':(r.time||'')}</span>
+    </label>`).join('')}</div>` : '';
+  const items = S.tasks.filter(t=>t.due && dayDiff(t.due.slice(0,10))<=0 && (t.status==='open' || (t.status==='done' && (t.done_at||'').slice(0,10)===today())))
+    .map(t => ({t, done:t.status==='done', key: dayDiff(t.due.slice(0,10))<0 ? '00:01' : (t.due.length>10 ? t.due.slice(11,16) : '23:59'), u:urg(t)}));
   items.sort((a,b)=> (a.done-b.done) || a.key.localeCompare(b.key) || a.u-b.u);
-  if(!items.length) return '<div class="empty">Nada para hoje.</div>';
-  return `<h2>${fmtDay(today())==='hoje' ? DIAS[dObj(today()).getDay()]+' '+today().slice(8)+'/'+today().slice(5,7) : ''} · ${items.length}</h2>` +
-    items.map(i => i.type==='t' ? card(i.t) : rcard(i.r)).join('');
+  const head = `<h2>${DIAS[dObj(today()).getDay()]} ${today().slice(8)}/${today().slice(5,7)} · ${items.filter(i=>!i.done).length}</h2>`;
+  return chips + head + (items.length ? items.map(i => card(i.t)).join('') : '<div class="empty">Nenhuma tarefa para hoje.</div>');
 }
 function rcard(r, date){
   const t = r.all_day ? 'dia todo' : r.time;
