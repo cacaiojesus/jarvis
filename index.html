@@ -26,6 +26,7 @@
          --rot:#2c1a22; --rotline:#4a2533; --rotink:#ff7aa5; --today:#5b8cff; --work:#f2f2f4; }
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
 .wrap{max-width:860px;margin:0 auto;padding:24px 16px 60px}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -129,12 +130,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v4</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v5</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !['127.0.0.1','localhost'].includes(location.hostname) || location.search.includes('cloud');
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
