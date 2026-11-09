@@ -64,6 +64,11 @@ h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .row{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;cursor:pointer}
 .check{appearance:none;width:22px;height:22px;border:2px solid var(--muted);border-radius:50%;flex:none;margin:1px 0 0;cursor:pointer}
 .check:checked{background:var(--ok);border-color:var(--ok);box-shadow:inset 0 0 0 3px var(--card)}
+.check{transition:transform .12s;-webkit-tap-highlight-color:transparent}
+.check:active{transform:scale(.88)}
+.check.pop{animation:chkpop .32s cubic-bezier(.3,1.6,.5,1)}
+@keyframes chkpop{0%{transform:scale(.85)}45%{transform:scale(1.4)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.check.pop{animation:none}}
 .main{flex:1;min-width:0}
 .title{font-weight:600}
 .done .title{text-decoration:line-through;color:var(--muted)}
@@ -130,12 +135,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v7</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v8</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -389,6 +394,18 @@ async function load(){
   $('#foot').textContent += pend.length ? ` · ${pend.length} pedido(s) esperando o Mac` : '';
   render(); if(syncing) setTimeout(load, CLOUD ? 15000 : 2000);
 }
+// sensação de clique: saltadinha + vibração (iPhone) / som (Mac)
+let _actx = null;
+function clickFeel(sel){
+  requestAnimationFrame(() => { const el = document.querySelector(sel); if(el){ el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } });
+  try { if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.jarvis){ window.webkit.messageHandlers.jarvis.postMessage('tap'); return; } } catch(e){}
+  try { // fora do app nativo: um "tic" curtinho
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o=_actx.createOscillator(), g=_actx.createGain(); o.type='triangle'; o.frequency.value=1800;
+    g.gain.setValueAtTime(.18,_actx.currentTime); g.gain.exponentialRampToValueAtTime(.001,_actx.currentTime+.05);
+    o.connect(g); g.connect(_actx.destination); o.start(); o.stop(_actx.currentTime+.06);
+  } catch(e){}
+}
 // avisa o app nativo (widget) na hora em que algo muda
 function notifyNative(){ try { window.webkit.messageHandlers.jarvis.postMessage('changed'); } catch(e){} }
 const api = (url, method, body) => { const p = apiRaw(url, method, body); if(method && method!=='GET') p.then(notifyNative, ()=>{}); return p; };
@@ -406,7 +423,7 @@ $('#list').addEventListener('click', async e => {
     if(act==='rdone'){ const d=rbox.dataset.date, on=el.checked;
       const it=S.today.find(x=>x.routine_id===rid); if(it && d===today()) it.done=on;
       if(on) S.routine_done.unshift({date:d,routine_id:rid,title:(it||{}).title}); else S.routine_done=S.routine_done.filter(x=>!(x.date===d&&x.routine_id===rid));
-      render(); toast(on?'Feito ✓':'Desmarcado');
+      render(); clickFeel(`[data-rid="${rid}"] .check`); toast(on?'Feito ✓':'Desmarcado');
       await api(`/api/routines/${rid}/log`,'POST',{date:d,done:on?1:0}); return load(); }
     if(act==='rtoggle'){ if(e.target.closest('.check')) return; openId = openId==='r'+rid?null:'r'+rid; return render(); }
     if(act==='rsaveToday'){ const v=rbox.querySelector('[name=ovr]').value; await api(`/api/routines/${rid}/log`,'POST',{date:today(),time_override:v||null}); openId=null; toast('Horário de hoje ajustado'); return load(); }
@@ -425,7 +442,7 @@ $('#list').addEventListener('click', async e => {
   // tarefas
   const box = e.target.closest('[data-id]'); if(!box) return;
   const id = +box.dataset.id; const t = S.tasks.find(x=>x.id===id);
-  if(act==='done'){ const on=el.checked; t.status=on?'done':'open'; t.done_at=on?new Date().toISOString().slice(0,10)+' 00:00':null; openId=null; render();
+  if(act==='done'){ const on=el.checked; t.status=on?'done':'open'; t.done_at=on?new Date().toISOString().slice(0,10)+' 00:00':null; openId=null; render(); clickFeel(`[data-id="${id}"] .check`);
     toast(on?'Entregue ✓':'Reaberta'); await api('/api/tasks/'+id,'PATCH',{status: on?'done':'open'}); return load(); }
   if(act==='toggle'){ if(e.target.closest('.check')) return; openId = openId===id ? null : id; return render(); }
   if(act==='delete'){ if(!confirm('Apagar esta tarefa? A rotina não vai recriá-la.')) return; await api('/api/tasks/'+id,'PATCH',{status:'deleted'}); openId=null; toast('Apagada'); return load(); }
