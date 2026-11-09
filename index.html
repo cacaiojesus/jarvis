@@ -67,6 +67,17 @@ h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .check{transition:transform .12s;-webkit-tap-highlight-color:transparent}
 .check:active{transform:scale(.88)}
 .check.pop{animation:chkpop .32s cubic-bezier(.3,1.6,.5,1)}
+/* menu de toque longo */
+.task .row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.task.pressing{transform:scale(.98);transition:transform .15s}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;align-items:flex-end;justify-content:center;padding:0 max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+.sheet{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:6px;animation:up .18s ease-out}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+.sheet .st{font-weight:600;padding:6px 8px 8px;font-size:14px;color:var(--muted)}
+.sheet button{width:100%;text-align:left;padding:12px 14px;border-radius:11px;font-size:15px}
+.sheet .row2{display:flex;gap:6px}.sheet .row2 button{text-align:center}
+.sheet input[type=date]{font:inherit;padding:11px 12px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.sheet .danger{color:var(--high)}
 @keyframes chkpop{0%{transform:scale(.85)}45%{transform:scale(1.4)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion: reduce){.check.pop{animation:none}}
 .main{flex:1;min-width:0}
@@ -127,6 +138,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
   <footer id="foot">—</footer>
 </div>
 <div class="toast" id="toast"></div>
+<div class="sheet-bg" id="sheetBg" hidden><div class="sheet" id="sheet"></div></div>
 
 <div id="login" hidden style="position:fixed;inset:0;background:var(--bg);z-index:20;display:grid;place-items:center;padding:24px">
   <form id="loginForm" style="width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px">
@@ -135,12 +147,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v9</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v10</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -405,6 +417,49 @@ async function load(){
   $('#foot').textContent += pend.length ? ` · ${pend.length} pedido(s) esperando o Mac` : '';
   render(); if(syncing) setTimeout(load, CLOUD ? 15000 : 2000);
 }
+// ---------- toque longo (ou botão direito no Mac): Feita / Mover / Apagar ----------
+let pressTimer = null, pressedEl = null, suppressUntil = 0, sheetTask = null;
+function addDays(n){ const d=dObj(today()); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function openSheet(id){
+  const t = S.tasks.find(x=>x.id===id); if(!t) return; sheetTask = t; suppressUntil = Date.now() + 700;
+  try { window.webkit.messageHandlers.jarvis.postMessage('tap'); } catch(e){}
+  const done = t.status==='done';
+  $('#sheet').innerHTML = `<div class="st">${esc(t.title)}</div>
+    <button data-s="done">${done?'Reabrir':'Marcar como feita'}</button>
+    <div class="row2"><button data-s="d0">Hoje</button><button data-s="d1">Amanhã</button><button data-s="d2">Depois de amanhã</button></div>
+    <input type="date" id="sheetDate" value="${t.due?t.due.slice(0,10):''}" aria-label="Mover para o dia">
+    <button data-s="del" class="danger">Apagar</button>
+    <button data-s="x">Cancelar</button>`;
+  $('#sheetBg').hidden = false;
+  $('#sheetDate').addEventListener('change', e => { if(e.target.value) moveTask(e.target.value); });
+}
+function closeSheet(){ $('#sheetBg').hidden = true; sheetTask = null; }
+async function moveTask(day){
+  const t = sheetTask; if(!t) return closeSheet();
+  const due = day + (t.due && t.due.length > 10 ? t.due.slice(10) : '');
+  t.due = due; closeSheet(); render(); toast('Movida para ' + fmtDue(due));
+  await api('/api/tasks/'+t.id,'PATCH',{due}); load();
+}
+$('#sheetBg').addEventListener('click', async e => {
+  if(e.target.id==='sheetBg') return closeSheet();
+  const b = e.target.closest('[data-s]'); if(!b) return; const t = sheetTask; const a = b.dataset.s;
+  if(a==='x') return closeSheet();
+  if(a==='d0') return moveTask(today()); if(a==='d1') return moveTask(addDays(1)); if(a==='d2') return moveTask(addDays(2));
+  if(a==='done'){ const on = t.status!=='done'; t.status = on?'done':'open'; closeSheet(); render(); clickFeel(`[data-id="${t.id}"] .check`);
+    toast(on?'Entregue':'Reaberta'); await api('/api/tasks/'+t.id,'PATCH',{status: on?'done':'open'}); return load(); }
+  if(a==='del'){ t.status='deleted'; closeSheet(); render(); toast('Apagada. Se foi sem querer, está na Lixeira.', 4500);
+    await api('/api/tasks/'+t.id,'PATCH',{status:'deleted'}); return load(); }
+});
+function cancelPress(){ clearTimeout(pressTimer); pressTimer=null; if(pressedEl){ pressedEl.classList.remove('pressing'); pressedEl=null; } }
+$('#list').addEventListener('pointerdown', e => {
+  const box = e.target.closest('.task[data-id]'); if(!box || e.target.closest('.check, .edit, button, input, select, textarea')) return;
+  if(box.closest('[data-v]') ) return;
+  pressedEl = box; box.classList.add('pressing');
+  pressTimer = setTimeout(() => { cancelPress(); openSheet(+box.dataset.id); }, 450);
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev => $('#list').addEventListener(ev, cancelPress));
+$('#list').addEventListener('pointermove', e => { if(pressTimer && (Math.abs(e.movementX)+Math.abs(e.movementY))>6) cancelPress(); });
+$('#list').addEventListener('contextmenu', e => { const box = e.target.closest('.task[data-id]'); if(!box || e.target.closest('.edit')) return; e.preventDefault(); openSheet(+box.dataset.id); });
 // sensação de clique: saltadinha + vibração (iPhone) / som (Mac)
 let _actx = null;
 function clickFeel(sel){
@@ -424,6 +479,7 @@ const apiRaw = (url, method, body) => CLOUD ? cloudApi(url, method, body)
   : fetch(url, method==='GET' ? {} : {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}).then(r=>r.json());
 
 $('#list').addEventListener('click', async e => {
+  if(Date.now() < suppressUntil){ e.preventDefault(); return; }
   const el = e.target.closest('[data-act]'); if(!el) return;
   const act = el.dataset.act;
   if(act==='fold'){ openId=null; return render(); }
