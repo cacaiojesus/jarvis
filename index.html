@@ -17,13 +17,13 @@
   --bg:#f6f5f2; --card:#fff; --ink:#1c1c1e; --muted:#6e6e73; --line:#e6e4df;
   --accent:#2f5bea; --high:#d93a2b; --mid:#d98a00; --low:#2e9e5b; --ok:#2e9e5b; --chip:#efeee9;
   --pers:#f6f1ff; --persline:#e4d8ff; --persink:#7b4dff;
-  --rot:#fff1f5; --rotline:#ffd2e0; --rotink:#e0457b; --today:#2f6bff; --work:#1c1c1e;
+  --trash:#7d8597; --rot:#fff1f5; --rotline:#ffd2e0; --rotink:#e0457b; --today:#2f6bff; --work:#1c1c1e;
 }
 @media (prefers-color-scheme: dark){
   :root{ --bg:#121214; --card:#1c1c1f; --ink:#f2f2f4; --muted:#9a9aa2; --line:#2c2c31;
          --accent:#6d8cff; --high:#ff6b5c; --mid:#ffb340; --low:#4cc480; --ok:#4cc480; --chip:#26262b;
          --pers:#221c30; --persline:#382c52; --persink:#a88bff;
-         --rot:#2c1a22; --rotline:#4a2533; --rotink:#ff7aa5; --today:#5b8cff; --work:#f2f2f4; }
+         --trash:#9aa3b5; --rot:#2c1a22; --rotline:#4a2533; --rotink:#ff7aa5; --today:#5b8cff; --work:#f2f2f4; }
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -55,7 +55,7 @@ button:disabled{opacity:.5;cursor:default}
 .tabs{display:flex;gap:6px;margin:10px 0 4px;flex-wrap:wrap}
 .tabs button{font-size:13px;padding:4px 11px}
 .tabs button[data-v=trabalho]{--c:var(--work)} .tabs button[data-v=pessoal]{--c:var(--persink)}
-.tabs button[data-v=rotina]{--c:var(--rotink)} .tabs button[data-v=entregues]{--c:var(--ok)}
+.tabs button[data-v=rotina]{--c:var(--rotink)} .tabs button[data-v=lixeira]{--c:var(--trash)} .tabs button[data-v=entregues]{--c:var(--ok)}
 .views button,.tabs button{color:var(--c);border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
 .views button.on,.tabs button.on{background:var(--c);border-color:var(--c);color:var(--bg)}
 h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:24px 0 8px}
@@ -122,7 +122,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
   </div>
 
   <div class="views"><button data-v="hoje" class="on">Hoje</button><button data-v="geral">Geral</button><button data-v="entregues">Entregues</button></div>
-  <div class="tabs"><button data-v="trabalho">Trabalho</button><button data-v="pessoal">Pessoal</button><button data-v="rotina">Rotina</button></div>
+  <div class="tabs"><button data-v="trabalho">Trabalho</button><button data-v="pessoal">Pessoal</button><button data-v="rotina">Rotina</button><button data-v="lixeira">Lixeira</button></div>
   <div id="list"></div>
   <footer id="foot">—</footer>
 </div>
@@ -135,12 +135,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v8</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v9</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -194,7 +194,7 @@ async function cloudApi(url, method, body){
   if(url==='/api/tasks' && method==='GET'){
     const sinceD = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
     const [tasks, rts, logs, plans, cmds] = await Promise.all([
-      rest('GET','tasks?select=*&status=neq.deleted'),
+      rest('GET','tasks?select=*'),
       rest('GET','routines?select=*&active=eq.1&order=id'),
       rest('GET','routine_log?select=*&date=gte.'+sinceD),
       rest('GET','today_plan?select=*&date=in.('+today+',meta)'),
@@ -266,15 +266,26 @@ function render(){
   if(view==='hoje') h = renderToday();
   else if(view==='rotina') h = renderRoutines();
   else if(view==='entregues') h = renderDelivered();
+  else if(view==='lixeira') h = renderTrash();
   else {
     const arr = view==='geral' ? open() : open().filter(t=>(t.area||'trabalho')===view);
-    if(!arr.length) h = '<div class="empty">Nada aqui. 🎉</div>';
+    if(!arr.length) h = '<div class="empty">Nada aqui.</div>';
     else for(const g of ['Hoje','Próximos 7 dias','Mais pra frente','Sem prazo']){
       const a = arr.filter(t=>bucket(t)===g).sort(byUrg);
       if(a.length) h += `<h2>${g} · ${a.length}</h2>` + a.map(t=>card(t)).join('');
     }
   }
   L.innerHTML = h;
+}
+function renderTrash(){
+  const arr = S.tasks.filter(t=>t.status==='deleted').sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))).slice(0,60);
+  if(!arr.length) return '<div class="empty">A lixeira está vazia.</div>';
+  return '<div class="empty" style="padding-top:4px">Tarefas apagadas. Toque em Restaurar para trazer de volta.</div>' + arr.map(t => `
+    <div class="task" data-id="${t.id}" style="opacity:.8">
+      <div class="row" style="cursor:default;align-items:center"><span class="bar" style="background:var(--trash)"></span>
+        <div class="main"><div class="title">${esc(t.title)}</div>
+          <div class="meta">${t.due?`<span>${fmtDue(t.due)}</span>`:''}${t.client?`<span class="chip">${esc(t.client)}</span>`:''}${t.with_whom?`<span>${esc(t.with_whom)}</span>`:''}</div></div>
+        <button data-act="restore">Restaurar</button></div></div>`).join('');
 }
 function renderDelivered(){
   const tasks = S.tasks.filter(t=>t.status==='done').sort((a,b)=>(b.done_at||'').localeCompare(a.done_at||''));
@@ -349,7 +360,7 @@ function card(t){
       <span class="bar u${u}"></span>
       <input type="checkbox" class="check" data-act="done" ${t.status==='done'?'checked':''}>
       <div class="main">
-        <div class="title">${t.kind==='compromisso'?'📅 ':''}${esc(t.title)}</div>
+        <div class="title">${esc(t.title)}</div>
         <div class="meta">
           ${t.due?`<span class="${late(t)?'late':''}">${late(t)?'Atrasada · ':''}${fmtDue(t.due)}</span>`:''}
           <span class="u${u}">${U[u]}</span>
@@ -373,7 +384,7 @@ function card(t){
       <label class="full">Links (um por linha)<textarea name="links" style="min-height:44px">${esc(t.links.join('\n'))}</textarea>
         <span class="links">${t.links.map(l=>`<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join('')}</span></label>
       <div class="actions">
-        <span class="lock">${locked?'🔒 '+locked:''}${t.source_chat?` <span style="opacity:.7">· ${esc(t.source_chat)}</span>`:''}</span>
+        <span class="lock">${locked?locked:''}${t.source_chat?` <span style="opacity:.7">· ${esc(t.source_chat)}</span>`:''}</span>
         <span><button data-act="delete">Apagar</button> <button class="primary" data-act="save">Salvar</button> <button class="fold" data-act="fold" title="Recolher">▲</button></span>
       </div>
     </div>
@@ -432,7 +443,7 @@ $('#list').addEventListener('click', async e => {
   const rr = e.target.closest('[data-rrid]');
   if(rr){ const id=+rr.dataset.rrid;
     if(act==='rrtoggle'){ openId = openId==='R'+id?null:'R'+id; return render(); }
-    if(act==='rdel'){ if(!confirm('Apagar esta rotina?')) return; await api('/api/routines/'+id,'PATCH',{active:0}); openId=null; return load(); }
+    if(act==='rdel'){ await api('/api/routines/'+id,'PATCH',{active:0}); openId=null; return load(); }
     if(act==='rsave'){ const q=n=>rr.querySelector(`[name=${n}]`);
       const days=[0,1,2,3,4,5,6].filter(i=>q('d'+i).checked);
       await api('/api/routines/'+id,'PATCH',{title:q('title').value,days,time:q('time').value||null,duration:+q('duration').value,
@@ -445,7 +456,8 @@ $('#list').addEventListener('click', async e => {
   if(act==='done'){ const on=el.checked; t.status=on?'done':'open'; t.done_at=on?new Date().toISOString().slice(0,10)+' 00:00':null; openId=null; render(); clickFeel(`[data-id="${id}"] .check`);
     toast(on?'Entregue ✓':'Reaberta'); await api('/api/tasks/'+id,'PATCH',{status: on?'done':'open'}); return load(); }
   if(act==='toggle'){ if(e.target.closest('.check')) return; openId = openId===id ? null : id; return render(); }
-  if(act==='delete'){ if(!confirm('Apagar esta tarefa? A rotina não vai recriá-la.')) return; await api('/api/tasks/'+id,'PATCH',{status:'deleted'}); openId=null; toast('Apagada'); return load(); }
+  if(act==='delete'){ t.status='deleted'; openId=null; render(); toast('Apagada. Se foi sem querer, está na Lixeira.', 4500); await api('/api/tasks/'+id,'PATCH',{status:'deleted'}); return load(); }
+  if(act==='restore'){ t.status='open'; render(); toast('Restaurada'); await api('/api/tasks/'+id,'PATCH',{status:'open'}); return load(); }
   if(act==='save'){
     const f = {}; box.querySelectorAll('.edit [name]').forEach(i => f[i.name]=i.value);
     f.due = f.due_d ? (f.due_h ? f.due_d+' '+f.due_h : f.due_d) : null; delete f.due_d; delete f.due_h;
@@ -459,7 +471,7 @@ $('#list').addEventListener('click', async e => {
     }
     if(urgSel!=='auto' && (!t.locked.includes('urgency') || +urgSel!==t.urgency)) changed.urgency=+urgSel;
     if(!Object.keys(changed).length) return toast('Nada mudou');
-    await api('/api/tasks/'+id,'PATCH',changed); toast('Salvo 🔒'); return load();
+    await api('/api/tasks/'+id,'PATCH',changed); toast('Salvo'); return load();
   }
 });
 
@@ -475,7 +487,7 @@ $('#newText').addEventListener('keydown', e => { if(e.key==='Enter' && (e.metaKe
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, base = '';
 function stopMic(){ if(rec){ rec.stop(); } }
-if(!SR) $('#mic').onclick = () => toast('Este navegador não tem ditado. Abra no Safari ou no Chrome — ou use o ditado do Mac (tecla 🎤 / Fn duas vezes).', 7000);
+if(!SR) $('#mic').onclick = () => toast('Este navegador não tem ditado. Abra no Safari ou no Chrome — ou use o ditado do Mac (tecla do microfone ou Fn duas vezes).', 7000);
 else $('#mic').onclick = () => {
   if(rec) return stopMic();
   rec = new SR(); rec.lang='pt-BR'; rec.continuous=true; rec.interimResults=true;
@@ -489,11 +501,11 @@ else $('#mic').onclick = () => {
 };
 
 // ---------- botão do WhatsApp: frase muda todo dia ----------
-const FRASES = ['Bora ver o zap 👀','Fazer o select do zap','Color grade nas demandas','Importar o dia','Ctrl+B nas mensagens',
+const FRASES = ['Bora ver o zap','Fazer o select do zap','Color grade nas demandas','Importar o dia','Ctrl+B nas mensagens',
  'Puxar a timeline do dia','Caçar task dos Majors','A Aline mandou algo?','Relinkar as demandas','Render do WhatsApp',
- 'Proxy das mensagens','Flash + film click 📸','Garimpar os grupos','Keyframe no zap','Abrir o bin do dia',
- 'Café + zap ☕','Quem pediu vídeo hoje?','Exportar o dia em H.264','Desembolar o WhatsApp','Pré-render do dia',
- 'Ver o que vem em 4:5','Ler sem travar o Resolve','Sincronizar o caos','Abrir os 48 grupos 🫠','Bom dia, Jarvis. Lê aí',
+ 'Proxy das mensagens','Flash + film click','Garimpar os grupos','Keyframe no zap','Abrir o bin do dia',
+ 'Café + zap','Quem pediu vídeo hoje?','Exportar o dia em H.264','Desembolar o WhatsApp','Pré-render do dia',
+ 'Ver o que vem em 4:5','Ler sem travar o Resolve','Sincronizar o caos','Abrir os 48 grupos','Bom dia, Jarvis. Lê aí',
  'Adobe Podcast nas tasks','Achar o TQ do dia','O que o Zé copiou?','Marcar os in/out do dia','Bater o ponto no zap'];
 const PRONTO = ['Pronto ✓ tudo no bin','Lido ✓ timeline limpa','Pronto ✓ render ok','Lido ✓ pode respirar','Pronto ✓ zero offline media'];
 function dayN(){ const d=new Date(); return Math.floor((d - new Date(d.getFullYear(),0,0))/864e5); }
@@ -505,7 +517,7 @@ function syncButton(j){
   else {
     b.disabled=false;
     const err = wasSyncing && (j.sync_msg||'').startsWith('Erro');
-    if(err){ b.classList.add('err'); b.textContent='Deu ruim 😬'; toast(j.sync_msg, 8000); setTimeout(()=>load(), 4000); }
+    if(err){ b.classList.add('err'); b.textContent='Deu ruim'; toast(j.sync_msg, 8000); setTimeout(()=>load(), 4000); }
     else if(j.last_sync && j.last_sync.slice(0,10)===today()){ b.textContent = PRONTO[n % PRONTO.length] + ' ' + j.last_sync.slice(11,16); }
     else b.textContent = FRASES[n % FRASES.length];
     if(wasSyncing && !err){ b.classList.add('pop'); setTimeout(()=>b.classList.remove('pop'),600); toast(j.sync_msg||'Pronto'); }
