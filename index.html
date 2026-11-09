@@ -126,54 +126,73 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
   <form id="loginForm" style="width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px">
     <div style="display:flex;justify-content:center;margin-bottom:8px"><svg width="56" height="56" viewBox="0 0 40 40"><rect width="40" height="40" rx="11" fill="#5a5cff"/><circle cx="20" cy="20" r="11" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/><path d="M20 9a11 11 0 0 1 11 11" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="20" cy="20" r="4.2" fill="#fff"/></svg></div>
     <input id="lEmail" type="email" placeholder="E-mail" autocomplete="username" required style="font:inherit;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)">
-    <input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="font:inherit;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)">
+    <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v3</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v4</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !['127.0.0.1','localhost'].includes(location.hostname) || location.search.includes('cloud');
-let sb = null;
+// Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
+const AUTH_KEY = 'jarvis_auth';
+const authGet = () => { try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch(e){ return null; } };
+const authSet = v => { try { v ? localStorage.setItem(AUTH_KEY, JSON.stringify(v)) : localStorage.removeItem(AUTH_KEY); } catch(e){} };
 function localDate(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-async function sbReady(){
-  if(sb) return sb;
-  await new Promise((ok, no) => { const s=document.createElement('script'); s.src='supabase.min.js'; s.onload=ok; s.onerror=no; document.head.appendChild(s); });
-  sb = window.supabase.createClient(CONFIG.url, CONFIG.key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:false,
-    lock: async (name, timeout, fn) => await fn()}});  // sem trava do navegador: no Safari do iPhone ela travava o login
-  return sb;
+async function http(url, opts={}, ms=15000){
+  const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), ms);
+  try { return await fetch(url, {...opts, signal: ctl.signal}); }
+  catch(e){ throw new Error(e.name==='AbortError' ? 'a nuvem demorou demais para responder' : 'sem internet ('+e.message+')'); }
+  finally { clearTimeout(t); }
+}
+async function authCall(grant, body){
+  const r = await http(CONFIG.url+'/auth/v1/token?grant_type='+grant, {method:'POST', headers:{apikey:CONFIG.key,'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ const e = new Error(j.error_description || j.msg || j.message || ('erro '+r.status)); e.status=r.status; throw e; }
+  const a = {access_token:j.access_token, refresh_token:j.refresh_token, expires_at: Math.floor(Date.now()/1000)+(j.expires_in||3600)};
+  authSet(a); return a;
+}
+async function accessToken(){
+  let a = authGet();
+  if(!a){ const e=new Error('login'); e.auth=true; throw e; }
+  if(a.expires_at - 60 < Date.now()/1000){
+    try { a = await authCall('refresh_token', {refresh_token:a.refresh_token}); }
+    catch(e){ if(e.status>=400 && e.status<500){ authSet(null); e.auth=true; } throw e; }
+  }
+  return a.access_token;
+}
+async function rest(method, path, body, prefer){
+  const h = {apikey:CONFIG.key, Authorization:'Bearer '+await accessToken(), 'Content-Type':'application/json'};
+  if(prefer) h.Prefer = prefer;
+  const r = await http(CONFIG.url+'/rest/v1/'+path, {method, headers:h, body: body===undefined ? undefined : JSON.stringify(body)});
+  if(r.status===401){ authSet(null); const e=new Error('login'); e.auth=true; throw e; }
+  const t = await r.text();
+  if(!r.ok) throw new Error('nuvem: '+t.slice(0,160));
+  return t ? JSON.parse(t) : null;
 }
 function showLogin(){ document.getElementById('login').hidden=false; }
+document.getElementById('lShow').addEventListener('click', () => { const i=document.getElementById('lPass'); i.type = i.type==='password' ? 'text' : 'password'; document.getElementById('lShow').textContent = i.type==='password' ? 'mostrar' : 'esconder'; });
 document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault(); const m=document.getElementById('lMsg'); m.textContent='Entrando…';
-  try{
-    const c = await sbReady();
-    const res = await Promise.race([
-      c.auth.signInWithPassword({email:document.getElementById('lEmail').value.trim().toLowerCase(), password:document.getElementById('lPass').value}),
-      new Promise(ok => setTimeout(() => ok({timeout:true}), 15000))]);
-    if(res.timeout){ const {data:{session}} = await c.auth.getSession(); if(!session){ m.textContent='A conexão demorou demais. Tente de novo.'; return; } }
-    else if(res.error){ m.textContent = /invalid/i.test(res.error.message) ? 'E-mail ou senha incorretos.' : 'Erro: '+res.error.message; return; }
-  }catch(err){ m.textContent='Não consegui conectar: '+(err && err.message || err); return; }
-  document.getElementById('login').hidden=true; load();
+  try {
+    await authCall('password', {email:document.getElementById('lEmail').value.trim().toLowerCase(), password:document.getElementById('lPass').value});
+  } catch(err){ m.textContent = err.status===400 ? 'E-mail ou senha incorretos.' : 'Não consegui entrar: '+err.message; return; }
+  m.textContent=''; document.getElementById('login').hidden=true; load();
 });
-async function q(p){ const {data, error} = await p; if(error){ const e=new Error(error.message); e.auth = /JWT|auth|permission|401|403/i.test(error.message+error.code); throw e; } return data; }
 const nowIso = () => new Date().toISOString();
 async function cloudApi(url, method, body){
-  const c = await sbReady();
-  const {data:{session}} = await c.auth.getSession();
-  if(!session){ const e=new Error('login'); e.auth=true; throw e; }
   const today = localDate(), m = (re) => url.match(re);
   if(url==='/api/tasks' && method==='GET'){
-    const since = new Date(Date.now()-7*864e5); const sinceD = since.toISOString().slice(0,10);
+    const sinceD = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
     const [tasks, rts, logs, plans, cmds] = await Promise.all([
-      q(c.from('tasks').select('*').neq('status','deleted')),
-      q(c.from('routines').select('*').eq('active',1).order('id')),
-      q(c.from('routine_log').select('*').gte('date', sinceD)),
-      q(c.from('today_plan').select('*').in('date',[today,'meta'])),
-      q(c.from('commands').select('*').eq('status','pending').order('id'))]);
+      rest('GET','tasks?select=*&status=neq.deleted'),
+      rest('GET','routines?select=*&active=eq.1&order=id'),
+      rest('GET','routine_log?select=*&date=gte.'+sinceD),
+      rest('GET','today_plan?select=*&date=in.('+today+',meta)'),
+      rest('GET','commands?select=*&status=eq.pending&order=id')]);
     const plan = (plans.find(p=>p.date===today)||{}).items || [];
     const meta = (plans.find(p=>p.date==='meta')||{}).items || {};
     const logT = Object.fromEntries(logs.filter(l=>l.date===today).map(l=>[l.routine_id,l]));
@@ -189,14 +208,14 @@ async function cloudApi(url, method, body){
   if((r = m(/^\/api\/tasks\/(\d+)$/))){
     const b = {...body, updated_by:'phone', updated_at: nowIso()};
     if(body.status) b.done_at = body.status==='done' ? new Date().toISOString().slice(0,16).replace('T',' ') : null;
-    await q(c.from('tasks').update(b).eq('id', +r[1])); return {task:null};
+    await rest('PATCH', 'tasks?id=eq.'+(+r[1]), b, 'return=minimal'); return {task:null};
   }
   if((r = m(/^\/api\/routines\/(\d+)\/log$/))){
-    const {date, ...rest} = body;
-    await q(c.from('routine_log').upsert({routine_id:+r[1], date:date||today, ...rest, updated_by:'phone', updated_at: nowIso()})); return {ok:true};
+    const {date, ...rest_} = body;
+    await rest('POST', 'routine_log', {routine_id:+r[1], date:date||today, ...rest_, updated_by:'phone', updated_at: nowIso()}, 'resolution=merge-duplicates,return=minimal'); return {ok:true};
   }
-  if(url==='/api/tasks' && method==='POST'){ await q(c.from('commands').insert({text: body.text, source:'iphone'})); return {warn:'Enviado ✓ o Jarvis organiza em até 1 min'}; }
-  if(url==='/api/sync'){ await q(c.from('commands').insert({text:'/sync', source:'iphone'})); return {ok:true}; }
+  if(url==='/api/tasks' && method==='POST'){ await rest('POST','commands',{text: body.text, source:'iphone'},'return=minimal'); return {warn:'Enviado ✓ o Jarvis organiza em até 1 min'}; }
+  if(url==='/api/sync'){ await rest('POST','commands',{text:'/sync', source:'iphone'},'return=minimal'); return {ok:true}; }
   throw new Error('No iPhone, rotinas se editam pelo Mac.');
 }
 let PENDING = [];
