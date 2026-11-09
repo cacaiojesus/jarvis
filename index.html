@@ -147,12 +147,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v10</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v11</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -595,6 +595,17 @@ async function watchRev(){
   } catch(e){}
 }
 setInterval(watchRev, 2000);
+// atualização automática: se saiu uma versão nova do app, recarrega sozinho (sem precisar fechar o Jarvis)
+async function checkVersion(){
+  try {
+    const r = await fetch('index.html?v=' + Date.now(), {cache:'no-store'});
+    const m = (await r.text()).match(/const VERSION = '(v\d+)'/);
+    if(m && m[1] !== VERSION && openId === null && $('#sheetBg').hidden) location.reload();
+  } catch(e){}
+}
+setInterval(checkVersion, 60000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) checkVersion(); });
+window.addEventListener('focus', checkVersion);
 setInterval(()=>{ if(!document.hidden && openId===null) load(); }, 30000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) load(); });
 window.addEventListener('focus', ()=>load());
