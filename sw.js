@@ -1,7 +1,7 @@
 // Jarvis: guarda o app no aparelho para abrir mesmo sem o Mac por perto.
 // Rede primeiro (pega a versão nova quando o Mac está acessível), cache como reserva.
-const CACHE = 'jarvis-v1';
-const FILES = ['./', './index.html', './icon-180.png', './icon-512.png', './manifest.json'];
+const CACHE = 'jarvis-v2';
+const FILES = ['./', './index.html', './icon-180.png', './icon-512.png', './manifest.json', './supabase.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', e => {

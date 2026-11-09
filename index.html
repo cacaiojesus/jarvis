@@ -139,15 +139,22 @@ let sb = null;
 function localDate(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 async function sbReady(){
   if(sb) return sb;
-  await new Promise((ok, no) => { const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js'; s.onload=ok; s.onerror=no; document.head.appendChild(s); });
-  sb = window.supabase.createClient(CONFIG.url, CONFIG.key, {auth:{persistSession:true, autoRefreshToken:true}});
+  await new Promise((ok, no) => { const s=document.createElement('script'); s.src='supabase.min.js'; s.onload=ok; s.onerror=no; document.head.appendChild(s); });
+  sb = window.supabase.createClient(CONFIG.url, CONFIG.key, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:false,
+    lock: async (name, timeout, fn) => await fn()}});  // sem trava do navegador: no Safari do iPhone ela travava o login
   return sb;
 }
 function showLogin(){ document.getElementById('login').hidden=false; }
 document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault(); const m=document.getElementById('lMsg'); m.textContent='Entrando…';
-  const {error} = await (await sbReady()).auth.signInWithPassword({email:document.getElementById('lEmail').value.trim(), password:document.getElementById('lPass').value});
-  if(error){ m.textContent='E-mail ou senha incorretos.'; return; }
+  try{
+    const c = await sbReady();
+    const res = await Promise.race([
+      c.auth.signInWithPassword({email:document.getElementById('lEmail').value.trim().toLowerCase(), password:document.getElementById('lPass').value}),
+      new Promise(ok => setTimeout(() => ok({timeout:true}), 15000))]);
+    if(res.timeout){ const {data:{session}} = await c.auth.getSession(); if(!session){ m.textContent='A conexão demorou demais. Tente de novo.'; return; } }
+    else if(res.error){ m.textContent = /invalid/i.test(res.error.message) ? 'E-mail ou senha incorretos.' : 'Erro: '+res.error.message; return; }
+  }catch(err){ m.textContent='Não consegui conectar: '+(err && err.message || err); return; }
   document.getElementById('login').hidden=true; load();
 });
 async function q(p){ const {data, error} = await p; if(error){ const e=new Error(error.message); e.auth = /JWT|auth|permission|401|403/i.test(error.message+error.code); throw e; } return data; }
