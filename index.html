@@ -155,12 +155,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:36px}
     <div style="position:relative;display:flex"><input id="lPass" type="password" placeholder="Senha" autocomplete="current-password" required style="flex:1;font:inherit;padding:11px 80px 11px 11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)"><button type="button" id="lShow" style="position:absolute;right:6px;top:6px;padding:5px 10px;font-size:13px">mostrar</button></div>
     <button class="primary" type="submit">Entrar</button>
     <div id="lMsg" style="color:var(--muted);font-size:13px;text-align:center"></div>
-    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v12</div>
+    <div style="color:var(--muted);font-size:11px;text-align:center;opacity:.6">v13</div>
   </form>
 </div>
 <script>
 // ---------- um app só: no Mac fala com o servidor local; fora dele, com a nuvem ----------
-const VERSION = 'v12';
+const VERSION = 'v13';
 const CONFIG = { url: 'https://quoslckleyrsrmfhqiqr.supabase.co', key: 'sb_publishable_5dT_aZOYF-aLCqcP2rYa_g_vEg5QfG2' };
 const CLOUD = !location.search.includes('local');   // a nuvem é a fonte única (Mac, iPhone e widgets)
 // Login e dados direto pela API do Supabase (sem biblioteca: ela travava no Safari do iPhone)
@@ -552,20 +552,35 @@ $('#newBtn').onclick = async () => {
 };
 $('#newText').addEventListener('keydown', e => { if(e.key==='Enter' && (e.metaKey||e.ctrlKey)) $('#newBtn').click(); });
 
+// ---------- microfone: no app Jarvis usa o ditado nativo (iPhone/Mac); no navegador, o do navegador ----------
+const NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.jarvis);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, base = '';
-function stopMic(){ if(rec){ rec.stop(); } }
-if(!SR) $('#mic').onclick = () => toast('Este navegador não tem ditado. Abra no Safari ou no Chrome — ou use o ditado do Mac (tecla do microfone ou Fn duas vezes).', 7000);
-else $('#mic').onclick = () => {
-  if(rec) return stopMic();
-  rec = new SR(); rec.lang='pt-BR'; rec.continuous=true; rec.interimResults=true;
+let rec = null, base = '', listening = false;
+function micOn(on){ listening = on; $('#mic').classList.toggle('rec', on); }
+function stopMic(){
+  if(NATIVE && listening){ try { window.webkit.messageHandlers.jarvis.postMessage('mic-stop'); } catch(e){} micOn(false); }
+  if(rec){ rec.stop(); }
+}
+window.jarvisDictation = d => {
+  if(d.error){ micOn(false); toast(d.error, 7000); return; }
+  if(d.text) $('#newText').value = base + d.text;
+  if(d.final) micOn(false);
+};
+$('#mic').onclick = () => {
+  if(listening || rec) return stopMic();
   base = $('#newText').value ? $('#newText').value.trimEnd()+' ' : '';
+  if(NATIVE){
+    try { window.webkit.messageHandlers.jarvis.postMessage('mic-start'); micOn(true); $('#newText').focus(); } catch(e){ toast('Microfone indisponível'); }
+    return;
+  }
+  if(!SR) return toast('Este navegador não tem ditado.', 5000);
+  rec = new SR(); rec.lang='pt-BR'; rec.continuous=true; rec.interimResults=true;
   rec.onresult = ev => { let fin='', tmp='';
     for(let i=0;i<ev.results.length;i++){ const r=ev.results[i]; (r.isFinal? (fin+=r[0].transcript) : (tmp+=r[0].transcript)); }
     $('#newText').value = base + fin + tmp; };
   rec.onerror = ev => { if(ev.error!=='no-speech') toast('Microfone: '+ev.error); };
-  rec.onend = () => { rec=null; $('#mic').classList.remove('rec'); };
-  rec.start(); $('#mic').classList.add('rec'); $('#newText').focus();
+  rec.onend = () => { rec=null; micOn(false); };
+  rec.start(); micOn(true); $('#newText').focus();
 };
 
 // ---------- botão do WhatsApp: frase muda todo dia ----------
